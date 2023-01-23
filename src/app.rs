@@ -267,6 +267,7 @@ pub fn app() -> Html {
             }
             <TextInput generate={generate.clone()}/>
             <FileInput {generate}/>
+            <footer><a href="https://github.com/RainbowAsteroids/qr-portal2d" target="_blank" rel="noopener noreferrer">{ "Source code" }</a></footer>
         </main>
     }
 }

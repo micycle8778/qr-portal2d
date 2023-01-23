@@ -19,6 +19,10 @@ h1 {
   text-align: center;
 }
 
+a {
+  color: white;
+}
+
 main {
   display: flex;
   align-items: center;
@@ -75,6 +79,13 @@ input[type="button"]:hover {
   padding: 2rem;
   border: 5px solid #f00;
   background: linear-gradient(to bottom right, #911, #700);
+}
+
+footer {
+  position: absolute;
+  width: 100vw;
+  bottom: 1em;
+  text-align: center;
 }
 
 @media (max-width: 1280px) {
