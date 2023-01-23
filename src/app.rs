@@ -82,6 +82,7 @@ struct FileInputProps {
 #[function_component(FileInput)]
 fn file_input(props: &FileInputProps) -> Html {
     let input_ref = use_node_ref();
+    // We need to store the FileReader as it reads the file, else the read will be cancelled.
     let reader = use_state(|| None::<FileReader>);
 
     let onchange = {
@@ -103,6 +104,7 @@ fn file_input(props: &FileInputProps) -> Html {
                     log!("read_as_bytes");
                     event.emit(data.expect("Error reading file"));
                 });
+                // We need to store the FileReader as it reads the file, else the read will be cancelled.
                 reader.set(Some(task));
                 
             }
