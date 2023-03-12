@@ -5,7 +5,7 @@ use gloo::file::{callbacks, File};
 use gloo::file::callbacks::FileReader;
 use qrcode::QrCode;
 use qrcode::render::svg;
-use qrcode::types::QrError;
+use qrcode::types::{EcLevel, QrError};
 use base64::{Engine as _, engine::general_purpose};
 use image::{Rgb, ImageOutputFormat, DynamicImage};
 
@@ -154,47 +154,167 @@ fn error_popup(props: &ErrorPopupProps) -> Html {
     }
 }
 
-#[derive(Clone)]
+#[derive(Properties, PartialEq)]
+struct OptionsProps {
+    visible: bool,
+    eclevel: EcLevel,
+    innercolor: (u8, u8, u8),
+    outercolor: (u8, u8, u8),
+    outputsize: (u32, u32),
+    visible_onclick: Callback<()>,
+    change_eclevel: Callback<EcLevel>
+}
+
+#[function_component(Options)]
+fn options(props: &OptionsProps) -> Html {
+    let change_ec = {
+        let event = props.change_eclevel.clone();
+        move |level| {
+            let event = event.clone();
+            move |_| {
+                event.emit(level);
+            }
+        }
+    };
+
+    let visible_onclick = {
+        let event = props.visible_onclick.clone();
+        move |_| {
+            event.emit(());
+        }
+    };
+    
+    let button_message = if props.visible {
+        "Hide Advanced Options"
+    } else {
+        "Show Advanced Options"
+    };
+    
+    html! {
+        <>
+            if props.visible {
+                <div class="advanced-options">
+                    <div class="change-ec">
+                        { "Error correction level: " }
+                        <input type="radio" name="eclevel" id="L" onclick={ change_ec(EcLevel::L) } checked={ props.eclevel == EcLevel::L }/>
+                        <label for="L">{ "7%" }</label>
+                        <input type="radio" name="eclevel" id="M" onclick={ change_ec(EcLevel::M) } checked={ props.eclevel == EcLevel::M }/>
+                        <label for="M">{ "15%" }</label>
+                        <input type="radio" name="eclevel" id="Q" onclick={ change_ec(EcLevel::Q) } checked={ props.eclevel == EcLevel::Q }/>
+                        <label for="Q">{ "25%" }</label>
+                        <input type="radio" name="eclevel" id="H" onclick={ change_ec(EcLevel::H) } checked={ props.eclevel == EcLevel::H }/>
+                        <label for="H">{ "30%" }</label>
+                    </div>
+                    <div class="change-size">
+                        { "Saved output size: " }
+                        <label for="output-x">{ "X:" }</label>
+                        <input type="number" id="output-x" required=true min=200 max={ u32::MAX.to_string() } value={ props.outputsize.0.to_string() }/>
+                        <label for="output-y">{ "Y:" }</label>
+                        <input type="number" id="output-y" required=true min=200 max={ u32::MAX.to_string() } value={ props.outputsize.1.to_string() }/>
+                    </div>
+                </div>
+            }
+            <input type="button" value={button_message} onclick={visible_onclick}/>
+        </>
+    }
+}
+
+enum AppAction {
+    ToggleAdvancedOptions,
+    UpdateEcLevel(EcLevel),
+    CloseError,
+    GenerateQrCode(Vec<u8>),
+}
+
+#[derive(Clone, Debug)]
 struct QrInfo {
     data: Vec<u8>,
     svg: String
 }
 
+#[derive(Clone, Debug)]
 struct AppState {
     qr: Option<QrInfo>,
-    error: Option<String>
+    error: Option<String>,
+    options_visible: bool,
+    ec_level: EcLevel
+}
+
+impl Reducible for AppState {
+    type Action = AppAction;
+    
+    fn reduce(self: std::rc::Rc<Self>, action: Self::Action) -> std::rc::Rc<Self> {
+        match action {
+            AppAction::CloseError => {
+                AppState { error: None, ..(*self).clone() }.into()
+            },
+            AppAction::ToggleAdvancedOptions => {
+                AppState { options_visible: !self.options_visible, ..(*self).clone() }.into()
+            },
+            AppAction::GenerateQrCode(data) => {
+                match QrCode::with_error_correction_level(&data, *&self.ec_level) {
+                    Ok(code) => {
+                        let svg = code.render::<svg::Color>().build();
+                        AppState { qr: Some(QrInfo { data, svg }), ..(*self).clone() }
+                    },
+                    Err(QrError::DataTooLong) => {
+                        let message = String::from("Data is too large! (2,331 max bytes or 3,391 max alphanumeric characters)");
+                        AppState { error: Some(message), ..(*self).clone() }
+                    },
+                    Err(e) => {
+                        let message = format!("An error has occured. ({e:?})");
+                        AppState { error: Some(message), ..(*self).clone() }
+                    }
+                }.into()
+            },
+            AppAction::UpdateEcLevel(ec_level) => {
+                let new_state = AppState { ec_level, ..(*self).clone() };
+                if let Some(qr_info) = self.qr.clone() {
+                    AppState::reduce(new_state.into(), AppAction::GenerateQrCode(qr_info.data))
+                } else {
+                    new_state.into()
+                }
+            }
+        }
+    }
 }
 
 #[function_component(App)]
 pub fn app() -> Html {
-    let state = use_state(|| AppState { qr: None, error: None } );
+    let state = use_reducer(|| AppState { 
+        qr: None, 
+        error: None, 
+        options_visible: false,
+        ec_level: EcLevel::M
+    } );
     let svg = state.qr.as_ref().map(|qr| qr.svg.clone());
     let link_ref = use_node_ref();
+
+    let visible_onclick = {
+        let state = state.clone();
+        move |_| {
+            state.dispatch(AppAction::ToggleAdvancedOptions)
+        }
+    };
 
     let error_close = {
         let state = state.clone();
         move |_| {
-            state.set( AppState { error: None, qr: state.qr.clone() } );
+            state.dispatch(AppAction::CloseError)
         }
     };
 
     let generate = {
         let state = state.clone();
         move |data: Vec<u8>| {
-            match QrCode::new(&data) {
-                Ok(code) => {
-                    let svg = code.render::<svg::Color>().build();
-                    state.set(AppState { qr: Some(QrInfo { data, svg }), error: state.error.clone() });
-                },
-                Err(QrError::DataTooLong) => {
-                    let message = String::from("Data is too large! (2,331 max bytes or 3,391 max alphanumeric characters)");
-                    state.set(AppState { error: Some(message), qr: state.qr.clone() });
-                },
-                Err(e) => {
-                    let message = format!("An error has occured. ({e:?})");
-                    state.set(AppState { error: Some(message), qr: state.qr.clone() });
-                }
-            }
+            state.dispatch(AppAction::GenerateQrCode(data))
+        }
+    };
+
+    let change_eclevel = {
+        let state = state.clone();
+        move |ec_level| {
+            state.dispatch(AppAction::UpdateEcLevel(ec_level))
         }
     };
 
@@ -251,6 +371,8 @@ pub fn app() -> Html {
     };
 
     html! {
+        <>
+        <div class="main-container">
         <main>
             <a style="diplay: none;" ref={link_ref}></a>
             <h1>{ "QR Code Generator" }</h1>
@@ -265,9 +387,20 @@ pub fn app() -> Html {
             if let Some(message) = &state.error {
                 <ErrorPopup message={message.clone()} close={error_close} />
             }
+            <Options 
+                visible={&state.options_visible}
+                eclevel={*&state.ec_level}
+                innercolor={(0,0,0)}
+                outercolor={(255,255,255)}
+                outputsize={(200,200)}
+                {visible_onclick}
+                {change_eclevel}
+            />
             <TextInput generate={generate.clone()}/>
             <FileInput {generate}/>
-            <footer><a href="https://github.com/RainbowAsteroids/qr-portal2d" target="_blank" rel="noopener noreferrer">{ "Source code" }</a></footer>
         </main>
+        </div>
+        <footer><a href="https://github.com/RainbowAsteroids/qr-portal2d" target="_blank" rel="noopener noreferrer">{ "Source code" }</a></footer>
+        </>
     }
 }
