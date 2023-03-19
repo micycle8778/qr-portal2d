@@ -104,13 +104,23 @@ pub fn color_input(props: &ColorInputProps) -> Html {
                 })
             };
         
-            let listener = EventListener::new(
+            let mousemove_listener = EventListener::new(
                 &window,
                 "mousemove",
-                move |e| mousemove.emit(e.dyn_ref::<web_sys::MouseEvent>().unwrap_throw().clone())
+                {
+                    let mousemove = mousemove.clone();
+                    move |e| mousemove.emit(e.dyn_ref::<web_sys::MouseEvent>().unwrap_throw().clone())
+                }
+            );
+
+            let mousedown_listener = EventListener::new(
+                &window,
+                "mousedown",
+                move |e| mousemove.clone().emit(e.dyn_ref::<web_sys::MouseEvent>().unwrap_throw().clone())
             );
         
-            move || drop(listener)
+            move || { drop(mousemove_listener); drop(mousedown_listener) }
+
         }
     });
 
